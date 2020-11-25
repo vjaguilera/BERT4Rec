@@ -251,7 +251,7 @@ def create_training_instances(all_documents_raw,
             if len(item_seq) <= max_num_tokens:
                 all_documents[user] = [item_seq]
             else:
-                beg_idx = range(len(item_seq)-max_num_tokens, 0, -sliding_step)
+                beg_idx = list(range(len(item_seq)-max_num_tokens, 0, -sliding_step))
                 beg_idx.append(0)
                 all_documents[user] = [item_seq[i:i + max_num_tokens] for i in beg_idx[::-1]]
 
@@ -496,7 +496,7 @@ def gen_samples(data,
 
 
 def main():
-    tf.logging.set_verbosity(tf.logging.DEBUG)
+    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.DEBUG)
     
     max_seq_length = FLAGS.max_seq_length
     max_predictions_per_seq = FLAGS.max_predictions_per_seq
@@ -510,6 +510,8 @@ def main():
     dataset_name = FLAGS.dataset_name
     version_id = FLAGS.signature
     print(version_id)
+    print(output_dir)
+    print(dataset_name)
 
     if not os.path.isdir(output_dir):
         print(output_dir + ' is not exist')
