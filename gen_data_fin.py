@@ -509,7 +509,7 @@ def main():
     output_dir = FLAGS.data_dir
     dataset_name = FLAGS.dataset_name
     version_id = FLAGS.signature
-    print version_id
+    print(version_id)
 
     if not os.path.isdir(output_dir):
         print(output_dir + ' is not exist')
