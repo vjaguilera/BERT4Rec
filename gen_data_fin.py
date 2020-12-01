@@ -226,9 +226,14 @@ def create_training_instances(all_documents_raw,
                               prop_sliding_window,
                               pool_size,
                               force_last=False):
-    """Create `TrainingInstance`s from raw text."""
+    """Create `TrainingInstance`s from raw text.
+    PARAMS:
+        - all_documents_raw (dict): Dict containing users as 
+        keys and item-list as value
+    """
     all_documents = {}
 
+    # TEST
     if force_last:
         max_num_tokens = max_seq_length
         for user, item_seq in all_documents_raw.items():
@@ -236,6 +241,9 @@ def create_training_instances(all_documents_raw,
                 print("got empty seq:" + user)
                 continue
             all_documents[user] = [item_seq[-max_num_tokens:]]
+            # Assign list of list from the last to the max_num_tokens
+
+    # TRAIN
     else:
         max_num_tokens = max_seq_length  # we need two sentence
 
@@ -249,38 +257,48 @@ def create_training_instances(all_documents_raw,
 
             #todo: add slide
             if len(item_seq) <= max_num_tokens:
+                # All to token
                 all_documents[user] = [item_seq]
             else:
                 beg_idx = list(range(len(item_seq)-max_num_tokens, 0, -sliding_step))
                 beg_idx.append(0)
+                # Reverse ordered list with 0 appended
                 all_documents[user] = [item_seq[i:i + max_num_tokens] for i in beg_idx[::-1]]
 
     instances = []
+
+    # TEST
     if force_last:
         for user in all_documents:
             instances.extend(
                 create_instances_from_document_test(
                     all_documents, user, max_seq_length))
         print("num of instance:{}".format(len(instances)))
+
+    # TRAIN
     else:
         start_time = time.clock()
         pool = multiprocessing.Pool(processes=pool_size)
         instances = []
-        print("document num: {}".format(len(all_documents)))
+        print("Document quantity: {}".format(len(all_documents)))
 
         def log_result(result):
             print("callback function result type: {}, size: {} ".format(type(result), len(result)))
+            # RESULT CAN BE error_callback or the result of create_instances_threading
             instances.extend(result)
+            # Add Training Instances to instances list if result is correct
 
         for step in range(dupe_factor):
+            # Run a process async as a thread
             pool.apply_async(
                 create_instances_threading, args=(
                     all_documents, user, max_seq_length, short_seq_prob,
                     masked_lm_prob, max_predictions_per_seq, vocab, random.Random(random.randint(1,10000)),
-                    mask_prob, step), callback=log_result)
+                    mask_prob, step, dupe_factor), callback=log_result)
         pool.close()
         pool.join()
         
+        # Always masking the last item
         for user in all_documents:
             instances.extend(
                 mask_last(
@@ -294,15 +312,16 @@ def create_training_instances(all_documents_raw,
 
 def create_instances_threading(all_documents, user, max_seq_length, short_seq_prob,
                                masked_lm_prob, max_predictions_per_seq, vocab, rng,
-                               mask_prob, step):
-    cnt = 0;
+                               mask_prob, step, dupe_factor):
+    cnt = 0
     start_time = time.clock()
     instances = []
     for user in all_documents:
-        cnt += 1;
+        cnt += 1
         if cnt % 1000 == 0:
-            print("step: {}, name: {}, step: {}, time: {}".format(step, multiprocessing.current_process().name, cnt, time.clock()-start_time))
+            print("step: {}/{}, name: {}, user: {}, time: {}".format(step, dupe_factor, multiprocessing.current_process().name, cnt, time.clock()-start_time))
             start_time = time.clock()
+
         instances.extend(create_instances_from_document_train(
             all_documents, user, max_seq_length, short_seq_prob,
             masked_lm_prob, max_predictions_per_seq, vocab, rng,
@@ -375,10 +394,13 @@ def create_instances_from_document_train(
     for tokens in document:
         assert len(tokens) >= 1 and len(tokens) <= max_num_tokens
         
+        # Return the tokens, the masked positions and the masked labels
         (tokens, masked_lm_positions,
          masked_lm_labels) = create_masked_lm_predictions(
              tokens, masked_lm_prob, max_predictions_per_seq,
              vocab_items, rng, mask_prob)
+        
+        # Instantiate a TrainingInstance
         instance = TrainingInstance(
             info=info,
             tokens=tokens,
@@ -394,7 +416,7 @@ MaskedLmInstance = collections.namedtuple("MaskedLmInstance",
 
 
 def create_masked_lm_predictions_force_last(tokens):
-    """Creates the predictions for the masked LM objective."""
+    """Creates the predictions for the masked LM objective, BUT JUST MASKING THE LAST ITEM"""
 
     last_index = -1
     for (i, token) in enumerate(tokens):
@@ -481,7 +503,7 @@ def gen_samples(data,
                 prop_sliding_window,
                 pool_size,
                 force_last=False):
-    # create train
+    # create train instances
     instances = create_training_instances(
         data, max_seq_length, dupe_factor, short_seq_prob, masked_lm_prob,
         max_predictions_per_seq, rng, vocab, mask_prob, prop_sliding_window,
@@ -490,6 +512,7 @@ def gen_samples(data,
     tf.logging.info("*** Writing to output files ***")
     tf.logging.info("  %s", output_filename)
 
+    # Write training instances
     write_instance_to_example_files(instances, max_seq_length,
                                     max_predictions_per_seq, vocab,
                                     [output_filename])
@@ -567,6 +590,7 @@ def main():
 
     print('begin to generate train')
     output_filename = output_dir + dataset_name + version_id + '.train.tfrecord'
+    ## Generating training masked samples
     gen_samples(
         user_train_data,
         output_filename,
@@ -585,6 +609,8 @@ def main():
 
     print('begin to generate test')
     output_filename = output_dir + dataset_name + version_id + '.test.tfrecord'
+    ## Generating test masked samples
+    ## force_last is True
     gen_samples(
         user_test_data,
         output_filename,
